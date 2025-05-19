@@ -26,6 +26,11 @@ import itertools
 
 import numpy as np
 import torch
+
+try:
+    from context_store_json import export_ast_chunks_to_json, query_json_context
+except ImportError:
+    pass 
 # sentence_transformers is imported only within functions that use it.
 
 # ---------------------------------------------------------------------
@@ -77,123 +82,6 @@ def _extract_ast_chunks_from_file(py_file_path: Path, repo_root_path: Path) -> I
                     "end_line": node.end_lineno, "docstring": ast.get_docstring(node) or "",
                     "source_code": source_code_snippet
                 }
-
-def export_ast_chunks_to_json(repo_root_path: str | Path,
-                              output_basename: str | Path) -> None:
-    """
-    Walk every *.py file beneath ``repo_root_path``, extract every function, async
-    function, and class via ``_extract_ast_chunks_from_file``, and write two UTF-8
-    JSON files:
-
-      <output_basename>_signatures.json   – each entry has
-        file_path, element_name, element_type, signature, docstring,
-        start_line, end_line
-
-      <output_basename>_fullsource.json   – each entry has
-        file_path, element_name, element_type, source_code
-
-    The *signature* includes the full decorator stack plus the ``def`` or
-    ``class`` header exactly as it appears in source.
-    """
-    repo_root = Path(repo_root_path)
-    base = Path(output_basename)
-
-    signatures: List[Dict[str, Any]] = []
-    fullsource: List[Dict[str, Any]] = []
-
-    py_files = repo_root.rglob("*.py")
-    for py_path in py_files:
-        if ".ipynb_checkpoints" in py_path.parts or py_path.name.startswith("."):
-            continue  # skip checkpoints and hidden files
-    
-        try:
-            chunks = _extract_ast_chunks_from_file(py_path, repo_root)
-        except (SyntaxError, UnicodeDecodeError):
-            continue  # unreadable file – ignore
-
-        for chunk in chunks:
-            # build a complete decorator stack + header
-            lines = chunk["source_code"].splitlines()
-            sig_lines = []
-            for ln in lines:
-                stripped = ln.lstrip()
-                if stripped.startswith("@"):
-                    sig_lines.append(ln)
-                    continue
-                if stripped.startswith(("def ", "async def ", "class ")):
-                    sig_lines.append(ln)
-                    break
-            if sig_lines:
-                sig_lines[0] = sig_lines[0].lstrip()
-            signature_text = "\n".join(sig_lines)
-
-            signatures.append({
-                "file_path": str(chunk["file_path"]),
-                "element_name": chunk["element_name"],
-                "element_type": chunk["element_type"],
-                "signature": signature_text,
-                "docstring": chunk.get("docstring", ""),
-                "start_line": chunk["start_line"],
-                "end_line": chunk["end_line"],
-            })
-            fullsource.append({
-                "file_path": str(chunk["file_path"]),
-                "element_name": chunk["element_name"],
-                "element_type": chunk["element_type"],
-                "source_code": chunk["source_code"],
-            })
-
-    sig_path = base.with_name(f"{base.name}_signatures.json")
-    src_path = base.with_name(f"{base.name}_fullsource.json")
-    with sig_path.open("w", encoding="utf-8") as f_sig:
-        json.dump(signatures, f_sig, ensure_ascii=False, indent=2)
-    with src_path.open("w", encoding="utf-8") as f_src:
-        json.dump(fullsource, f_src, ensure_ascii=False, indent=2)
-
-    # concise confirmation
-    print(f"JSON context exported to {sig_path.resolve()} and {src_path.resolve()}")
-
-def query_json_context(query: str,
-                       signatures_path: str | Path,
-                       fullsource_path: str | Path,
-                       k: int = 3) -> List[Dict[str, Any]]:
-    """
-    Case-insensitive keyword search over *element_name* and *docstring*.
-    Ranks by the number of distinct query tokens found, breaking ties by
-    ascending *start_line*.  Returns up to *k* results mirroring the shape
-    of ``get_code_context`` plus ``signature``.
-    """
-    tokens = {tok.lower() for tok in query.split() if tok}
-    if not tokens:
-        return []
-
-    with Path(signatures_path).open(encoding="utf-8") as f_sig:
-        sig_entries = json.load(f_sig)
-    with Path(fullsource_path).open(encoding="utf-8") as f_src:
-        full_entries = {(e["file_path"], e["element_name"]): e
-                        for e in json.load(f_src)}
-
-    scored = []
-    for e in sig_entries:
-        haystack = f"{e['element_name']} {e.get('docstring','')}".lower()
-        hits = sum(1 for t in tokens if t in haystack)
-        if hits:
-            scored.append((hits, e["start_line"], e))
-
-    scored.sort(key=lambda tpl: (-tpl[0], tpl[1]))
-    results = []
-    for _, __, e in itertools.islice(scored, k):
-        src = full_entries.get((e["file_path"], e["element_name"]), {})
-        results.append({
-            "file": e["file_path"],
-            "element_name": e["element_name"],
-            "element_type": e["element_type"],
-            "lines": f"{e['start_line']}-{e['end_line']}",
-            "docstring": e.get("docstring", ""),
-            "signature": e["signature"],
-            "snippet": src.get("source_code", ""),
-        })
-    return results
 
 def _get_sentence_transformer_model(model_name: str):
     if model_name not in _CACHED_MODELS:
