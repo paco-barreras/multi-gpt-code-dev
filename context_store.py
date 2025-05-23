@@ -24,6 +24,7 @@ from typing import List, Tuple, Dict, Any, Iterator
 import nbformat
 import json
 import itertools
+import pdb
 
 import numpy as np
 import torch
@@ -213,6 +214,8 @@ def process_source(path, text, elem_type, chunks, meta, repo):
             active_headings_stack.append((heading_level, heading_title))
             discovered_headings_info.append((i, heading_level, list(active_headings_stack)))
 
+            print(f"Heading detected: Level {heading_level} - {heading_title} at line {i + 1}")
+
     # Sentinel to mark end of last section
     discovered_headings_info.append((len(lines), 0, []))
 
@@ -221,11 +224,16 @@ def process_source(path, text, elem_type, chunks, meta, repo):
         next_start, _, _ = discovered_headings_info[idx + 1]
 
         snippet_lines = lines[current_start:next_start]
-        if sum(1 for l in snippet_lines if l.strip()) < 5:
+        # Ensure we don't skip chunks with valid content, even if small
+        if sum(1 for l in snippet_lines if l.strip()) < 1:
             continue
 
         snippet_text = ''.join(snippet_lines)
         heading_path_str = " > ".join(title for _, title in current_path)
+
+        # Debugging the chunk addition
+        print(f"Adding chunk for heading path: {heading_path_str} (Lines {current_start + 1} to {next_start})")
+        print(f"Chunk content: {snippet_text[:100]}...")  # Print first 100 chars of the chunk
 
         meta.append({
             "file_path": str(path.relative_to(repo)),
@@ -235,6 +243,11 @@ def process_source(path, text, elem_type, chunks, meta, repo):
             "end_line": next_start,
         })
         chunks.append(snippet_text)
+
+    # Debugging to confirm chunks are being processed
+    if not chunks:
+        print(f"No chunks added for {path}")
+
 
 def build_prose_index(repo_root_path, index_output_path, model_name=DEFAULT_MODEL):
     repo_root_path = Path(repo_root_path).resolve()
@@ -251,6 +264,8 @@ def build_prose_index(repo_root_path, index_output_path, model_name=DEFAULT_MODE
         'venv', 'node_modules'
     }
 
+    print("Starting build_prose_index")
+
     for file_path in repo_root_path.rglob("*"):
         should_skip = False
         try:
@@ -263,12 +278,14 @@ def build_prose_index(repo_root_path, index_output_path, model_name=DEFAULT_MODE
             should_skip = True
         
         if should_skip:
+            print(f"Skipping file due to exclusion: {file_path}")
             continue
 
         if not file_path.is_file():
             continue
 
         if file_path.suffix in prose_extensions:
+            print(f"Processing prose file: {file_path}")
             try:
                 text_content = file_path.read_text(encoding="utf-8")
                 elem_type = "Markdown" if file_path.suffix == ".md" else "ProseText"
@@ -278,6 +295,7 @@ def build_prose_index(repo_root_path, index_output_path, model_name=DEFAULT_MODE
                 print(f"Error processing prose file {file_path}: {e}", file=sys.stderr)
 
         elif file_path.suffix in notebook_extensions:
+            print(f"Processing notebook file: {file_path}")
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     notebook = nbformat.read(f, as_version=nbformat.NO_CONVERT)
@@ -288,38 +306,52 @@ def build_prose_index(repo_root_path, index_output_path, model_name=DEFAULT_MODE
                         continue
 
                     if cell.cell_type == "markdown":
+                        print(f"Markdown cell detected in {file_path}: {cell.source[:100]}...")  # Debugging first 100 chars
                         markdown_cell_sources.append(cell.source)
                     elif cell.cell_type == "code":
                         cell_source_stripped = cell.source.strip()
                         if cell_source_stripped.startswith(("!", "%")):
                             continue
-                
+
                 if markdown_cell_sources:
                     concatenated_markdown_content = "\n\n".join(markdown_cell_sources)
                     process_source(file_path, concatenated_markdown_content, "Notebook",
                                    all_chunks_text, all_chunks_meta, repo_root_path)
             except Exception as e:
                 print(f"Error processing notebook {file_path}: {e}", file=sys.stderr)
-    
+
     if not all_chunks_text:
-        print(f"No text chunks found in {repo_root_path} after exclusions. Prose index will not be built.", file=sys.stderr)
+        print(f"No text chunks found after exclusions. Prose index will not be built.")
         return
 
+    # Deriving the repository name for the .npz file
+    repo_name = repo_root_path.name
+    index_output_path = index_output_path / f"{repo_name}_prose_index.npz"
+
+    # Ensure the directory exists
+    print(f"Ensuring directory exists: {index_output_path.parent}")
+    index_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Debugging output before saving
+    print(f"Saving the .npz file to {index_output_path}...")
+    
     try:
         embeddings_array = _embed_texts_batch(all_chunks_text, model_name, is_query=False) 
 
-        index_output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+        # Saving the .npz file with the correct path and name
         np.savez_compressed(
             index_output_path,
             embeddings=embeddings_array,
             texts=np.array(all_chunks_text, dtype=object), 
             metadata=all_chunks_meta 
         )
-        print(f"Prose index built with {len(all_chunks_text)} chunks and saved to {index_output_path}", file=sys.stderr)
+        
+        # Confirmation of saving completion
+        print(f"Prose index built with {len(all_chunks_text)} chunks and saved to {index_output_path}")
 
     except Exception as e:
         print(f"Failed to build or save prose index for {repo_root_path}: {e}", file=sys.stderr)
+
 
 def get_prose_context(query, index_file_path, k=3, model_name=DEFAULT_MODEL):
     try:

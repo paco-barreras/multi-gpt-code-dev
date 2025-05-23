@@ -12,3 +12,8 @@ __pycache__/context_store.cpython-39.pyc
 **/*.cpython-39-pytest-8..3..5..pyc
 **/*.npz
 tests/.ipynb_checkpoints/test_context_store-checkpoint.py
+**/*.cpython-39-pytest-8..3..5..pyc
+**/*.cpython-39-pytest-8..3..5..pyc
+**/*.cpython-39-pytest-8..3..5..pyc
+tests/.ipynb_checkpoints/test_notebook_chunking-checkpoint.py
+tests/.ipynb_checkpoints/test_cli_smoke-checkpoint.py
