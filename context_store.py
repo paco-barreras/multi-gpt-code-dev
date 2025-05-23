@@ -186,46 +186,53 @@ def _handle_query_cli(args):
     except Exception as e: print(f"An error occurred during query: {e}", file=sys.stderr)
 
 def process_source(path, text, elem_type, chunks, meta, repo):
-    lines = text.splitlines(True) 
+    lines = text.splitlines(True)
     if not lines:
         return
 
     active_headings_stack = []
     discovered_headings_info = []
+    inside_code_block = False
 
     for i, line_content in enumerate(lines):
         stripped_line = line_content.lstrip()
+        # Toggle fenced code block state and skip the fence lines
+        if stripped_line.startswith("```"):
+            inside_code_block = not inside_code_block
+            continue
+        # Skip heading detection inside fenced code blocks
+        if inside_code_block:
+            continue
+        # Detect Markdown headings outside code blocks
         if stripped_line.startswith("#"):
             heading_level = len(stripped_line) - len(stripped_line.lstrip("#"))
             heading_title = stripped_line[heading_level:].strip()
 
             while active_headings_stack and active_headings_stack[-1][0] >= heading_level:
                 active_headings_stack.pop()
-            
             active_headings_stack.append((heading_level, heading_title))
             discovered_headings_info.append((i, heading_level, list(active_headings_stack)))
 
-    discovered_headings_info.append((len(lines), 0, [])) 
+    # Sentinel to mark end of last section
+    discovered_headings_info.append((len(lines), 0, []))
 
     for idx in range(len(discovered_headings_info) - 1):
-        current_heading_start_line_idx, _, current_heading_path_list = discovered_headings_info[idx]
-        next_heading_start_line_idx, _, _ = discovered_headings_info[idx+1]
-        
-        snippet_lines = lines[current_heading_start_line_idx : next_heading_start_line_idx]
+        current_start, _, current_path = discovered_headings_info[idx]
+        next_start, _, _ = discovered_headings_info[idx + 1]
 
-        non_empty_lines_count = sum(1 for l in snippet_lines if l.strip())
-        if non_empty_lines_count < 5:
+        snippet_lines = lines[current_start:next_start]
+        if sum(1 for l in snippet_lines if l.strip()) < 5:
             continue
-        
+
         snippet_text = ''.join(snippet_lines)
-        heading_path_str = " > ".join(h_title for _, h_title in current_heading_path_list)
+        heading_path_str = " > ".join(title for _, title in current_path)
 
         meta.append({
             "file_path": str(path.relative_to(repo)),
             "heading_path": heading_path_str,
             "element_type": elem_type,
-            "start_line": current_heading_start_line_idx + 1,
-            "end_line": next_heading_start_line_idx,
+            "start_line": current_start + 1,
+            "end_line": next_start,
         })
         chunks.append(snippet_text)
 

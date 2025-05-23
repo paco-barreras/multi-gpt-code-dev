@@ -8,3 +8,7 @@
 .ipynb_checkpoints/MASTER_AGENT_PRIME-checkpoint.md
 **/*.cpython-312..pyc
 **/*.cpython-312..pyc
+__pycache__/context_store.cpython-39.pyc
+**/*.cpython-39-pytest-8..3..5..pyc
+**/*.npz
+tests/.ipynb_checkpoints/test_context_store-checkpoint.py
