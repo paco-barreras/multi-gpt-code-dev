@@ -42,31 +42,32 @@ To work effectively on potentially large codebases without overwhelming individu
 To **preserve and optimize your active context window**. By enabling targeted retrieval of only relevant code snippets as needed, you can focus cognitive resources on the current task, leading to higher quality work, effective problem-solving, **and enabling focused debugging by isolating relevant code.**
 
 ### Standard Index Files & Tools
-*(Assumed Available in Agent Environment. Provided by Human Overseer.)*
+*(Assumed Available in Agent Environment. Provided by Human Overseer. `{{PROJECT_NAME_PLACEHOLDER}}` will be the actual name of the repository/project being worked on, e.g., "my_project" or "context_store_project".)*
 
 #### Lightweight JSON Index
 *(For precise, fast lookups of known Python elements by name)*
-*   **Signatures File:** `project_signatures.json` (Contains function/class signatures, docstrings).
-*   **Full Source File:** `project_fullsource.json` (Contains full source code for functions/classes).
-*   **Query Script:** `query_json_context_store.py` (Actual file: `context_store_json.py`). Used by agents (if environment permits) to query the JSON index.
+*   **Signatures File:** `{{PROJECT_NAME_PLACEHOLDER}}_signatures.json` (e.g., `my_project_signatures.json`). Contains public function/class signatures, docstrings, and metadata.
+*   **Full Source File:** `{{PROJECT_NAME_PLACEHOLDER}}_fullsource.json` (e.g., `my_project_fullsource.json`). Contains ALL function/class source code and metadata.
+*   **Query Script:** `context_store_json.py` (This is the actual script name agents will use/reference).
 
 #### Dense Embedding Index
 *(For conceptual, semantic search across all indexed code content)*
-*   **Index File:** `project_ast_index.npz`
-*   **Query Script:** `query_dense_context_store.py` (Actual file: `context_store.py`). Used by the Human Overseer (upon Master's request) to query the dense index.
+*   **Index File:** `{{PROJECT_NAME_PLACEHOLDER}}_ast_index.npz` (e.g., `my_project_ast_index.npz`). *(Note: The actual build command for `context_store.py` uses `--index` which can be a full path including a custom name. For simplicity in agent communication, we can refer to a conventional naming pattern here, or Master will specify the exact file path when requesting Human action).*
+*   **Query Script:** `context_store.py` (This is the actual script name used by the Human Overseer for dense queries).
 
 ### Choosing and Using the Right Context Retrieval Method
 
 #### Scenario 1: Working with a specific, named Python function/class
 *(E.g., modify, test, document `calculate_total_cost()` in `orders.py`)*
-*   **Instruction:** Specialized agents (`module_dev`, `unit_tester`) SHOULD **autonomously use `query_json_context_store.py`** with `project_signatures.json` and `project_fullsource.json` to retrieve the current source code and signature of the target element, if their environment permits script execution. If not, they MUST formulate the exact command for the Human Overseer. Master's task will point to the element but typically will not include its full source.
+*   **Instruction:** Specialized agents (`module_dev`, `unit_tester`) SHOULD **autonomously use `context_store_json.py`** with `{{PROJECT_NAME_PLACEHOLDER}}_signatures.json`
+or `{{PROJECT_NAME_PLACEHOLDER}}_fullsource.json` to retrieve the current source code and signature of the target element, if their environment permits script execution. If not, they MUST formulate the exact command for the Human Overseer. Master's task will point to the element but typically will not include its full source.
 *   **Rationale:** Fast, precise, and offloads simple context retrieval from Master. Agents manage their own immediate context for the element.
 
 #### Scenario 2: Broader codebase analysis, understanding conceptual impact, or finding non-obvious code patterns
 *(Example: Master needs to understand how a planned change to an internal data structure, e.g., `UserProfileV2`, might ripple through the system, or wants to locate all functions implementing a particular kind of complex data validation logic not easily found by keyword-searching function names or docstrings.)*
 *   **Instruction:** This requires understanding the *semantic meaning* of code. Master Agent will:
     1.  Formulate a *natural language query* describing the concept or pattern (e.g., "Impact of UserProfileV2 structure change on data processing functions" or "Find all code segments performing advanced input sanitization for database interaction").
-    2.  Request the Human Overseer (via an unsigned message, acting as an advanced context service, as this query often involves resource-intensive models that agents may not directly access) to execute this conceptual query against `project_ast_index.npz` using `query_dense_context_store.py`.
+    2.  Request the Human Overseer (via an unsigned message, acting as an advanced context service, as this query often involves resource-intensive models that agents may not directly access) to execute this conceptual query against `{{PROJECT_NAME_PLACEHOLDER}}_ast_index.npz` using `context_store.py`.
     3.  Master then receives the semantically relevant code snippets from the Human and provides this synthesized, rich context to the appropriate specialized agent within a signed task.
 *   **Rationale:** Leverages the power of dense embeddings for tasks where simple lookups are insufficient, keeping Master's direct context focused on the *results* of the semantic search.
 
