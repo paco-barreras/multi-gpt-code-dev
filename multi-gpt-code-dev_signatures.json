@@ -1,0 +1,74 @@
+[
+  {
+    "file_path": "context_store.py",
+    "element_name": "build_index",
+    "element_type": "FunctionDef",
+    "start_line": 102,
+    "end_line": 124,
+    "docstring": "",
+    "signature": "def build_index(repo_root_path, index_output_path, model_name=DEFAULT_MODEL):"
+  },
+  {
+    "file_path": "context_store.py",
+    "element_name": "get_code_context",
+    "element_type": "FunctionDef",
+    "start_line": 133,
+    "end_line": 165,
+    "docstring": "",
+    "signature": "def get_code_context(query, index_file_path, k=3, max_tokens=2000, query_model_name=DEFAULT_MODEL):"
+  },
+  {
+    "file_path": "context_store.py",
+    "element_name": "process_source",
+    "element_type": "FunctionDef",
+    "start_line": 188,
+    "end_line": 237,
+    "docstring": "",
+    "signature": "def process_source(path, text, elem_type, chunks, meta, repo):"
+  },
+  {
+    "file_path": "context_store.py",
+    "element_name": "build_prose_index",
+    "element_type": "FunctionDef",
+    "start_line": 239,
+    "end_line": 322,
+    "docstring": "",
+    "signature": "def build_prose_index(repo_root_path, index_output_path, model_name=DEFAULT_MODEL):"
+  },
+  {
+    "file_path": "context_store.py",
+    "element_name": "get_prose_context",
+    "element_type": "FunctionDef",
+    "start_line": 324,
+    "end_line": 376,
+    "docstring": "",
+    "signature": "def get_prose_context(query, index_file_path, k=3, model_name=DEFAULT_MODEL):"
+  },
+  {
+    "file_path": "context_store_json.py",
+    "element_name": "build_json_indices",
+    "element_type": "FunctionDef",
+    "start_line": 113,
+    "end_line": 175,
+    "docstring": "\n    Scans a Python repository, extracts AST chunks, and saves two JSON files:\n    - <repo_name>_signatures.json: Contains public (non-underscore-prefixed) elements' signatures and metadata.\n    - <repo_name>_fullsource.json: Contains all extracted elements' full source code and metadata.\n    Files are saved to the specified output directory.\n\n    Args:\n        repo_path_str (str | pathlib.Path): Path to the root directory of the Python repository.\n        output_dir_str (str | pathlib.Path): Directory to save the generated JSON index files.\n    ",
+    "signature": "def build_json_indices(repo_path_str, output_dir_str):"
+  },
+  {
+    "file_path": "context_store_json.py",
+    "element_name": "query_json_file",
+    "element_type": "FunctionDef",
+    "start_line": 178,
+    "end_line": 237,
+    "docstring": "\n    Queries a JSON index file (either signatures or full source) for relevant code elements.\n    Search is performed on 'element_name' and 'docstring'.\n    The structure of returned elements depends on the input index file.\n\n    Args:\n        query_str (str): Search query string.\n        index_file_path_str (str | pathlib.Path): Path to the JSON index file to query.\n        k (int, optional): Number of top results to return. Defaults to 3.\n\n    Returns:\n        list[dict[str, any]]: A list of dictionaries, each representing a matching code element.\n    ",
+    "signature": "def query_json_file(query_str, index_file_path_str, k=3):"
+  },
+  {
+    "file_path": "context_store_json.py",
+    "element_name": "main_cli",
+    "element_type": "FunctionDef",
+    "start_line": 241,
+    "end_line": 279,
+    "docstring": "Runs the command-line interface for building or querying JSON indices.",
+    "signature": "def main_cli():"
+  }
+]
