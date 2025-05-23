@@ -4,13 +4,13 @@ from typing import Iterator, Any
 
 # ---------- Helpers (no external deps) ----------
 
-def _get_ast_node_source_segment(source_lines: list[str], node: ast.AST) -> str:
+def _get_ast_node_source_segment(source_lines, node):
     try:
         return "".join(source_lines[node.lineno - 1: node.end_lineno])
     except Exception:
         return ""
 
-def _extract_ast_chunks_from_file(py_file_path: Path, repo_root_path: Path) -> Iterator[dict[str, Any]]:
+def _extract_ast_chunks_from_file(py_file_path, repo_root_path):
     try:
         content = py_file_path.read_text(encoding="utf-8", errors="ignore")
         lines = content.splitlines(True)
@@ -34,7 +34,7 @@ def _extract_ast_chunks_from_file(py_file_path: Path, repo_root_path: Path) -> I
 
 # ---------- JSON export / query ----------
 
-def export_ast_chunks_to_json(repo_root_path: str | Path, output_basename: str | Path) -> None:
+def export_ast_chunks_to_json(repo_root_path, output_basename):
     repo, base = Path(repo_root_path), Path(output_basename)
     sigs, fulls = [], []
     for py in repo.rglob("*.py"):
@@ -81,7 +81,7 @@ def export_ast_chunks_to_json(repo_root_path: str | Path, output_basename: str |
         json.dump(fulls, f, ensure_ascii=False, indent=2)
     print(f"JSON context exported to {sig_path.resolve()} and {full_path.resolve()}")
 
-def query_json_context(query: str, signatures_path: str | Path, fullsource_path: str | Path, k: int = 3) -> list[dict[str, Any]]:
+def query_json_context(query, signatures_path, fullsource_path, k=3):
     tokens = {t.lower() for t in query.split() if t}
     with open(signatures_path, encoding="utf-8") as f:
         sigs = json.load(f)
@@ -106,7 +106,7 @@ def query_json_context(query: str, signatures_path: str | Path, fullsource_path:
 
 # ---------- Tiny CLI ----------
 
-def main() -> None:
+def main():
     import argparse, json as _json
     p = argparse.ArgumentParser("context_store_json")
     sp = p.add_subparsers(dest="cmd", required=True)

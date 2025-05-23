@@ -35,13 +35,13 @@ except ImportError:
 # sentence_transformers is imported only within functions that use it.
 
 # ---------------------------------------------------------------------
-DEFAULT_MODEL: str = "intfloat/e5-base-v2"
+DEFAULT_MODEL = "intfloat/e5-base-v2"
 
-_CACHED_INDICES: Dict[Path, Tuple[torch.Tensor, List[Dict[str, Any]]]] = {}
-_CACHED_MODELS: Dict[str, Any] = {}
+_CACHED_INDICES = {}
+_CACHED_MODELS = {}
 # ---------------------------------------------------------------------
 
-def _get_ast_node_source_segment(source_lines: List[str], node: ast.AST) -> str | None:
+def _get_ast_node_source_segment(source_lines, node):
     if not (hasattr(node, 'lineno') and hasattr(node, 'end_lineno')):
         return None
     start_line_idx = node.lineno - 1
@@ -64,13 +64,12 @@ def _get_ast_node_source_segment(source_lines: List[str], node: ast.AST) -> str 
         return "".join(dedented_lines)
     return "".join(segment_lines)
 
-def _extract_ast_chunks_from_file(py_file_path: Path, repo_root_path: Path) -> Iterator[Dict[str, Any]]:
+def _extract_ast_chunks_from_file(py_file_path, repo_root_path):
     try:
         file_content = py_file_path.read_text(encoding="utf-8", errors="ignore")
         source_lines = file_content.splitlines(True)
         tree = ast.parse(file_content, filename=str(py_file_path))
     except Exception as e:
-        # print(f"Info: Could not parse AST for {py_file_path}, skipping: {e}", file=sys.stderr) # Optional: for debugging
         return
     file_rel_path_str = str(py_file_path.relative_to(repo_root_path))
     for node in ast.walk(tree):
@@ -84,7 +83,7 @@ def _extract_ast_chunks_from_file(py_file_path: Path, repo_root_path: Path) -> I
                     "source_code": source_code_snippet
                 }
 
-def _get_sentence_transformer_model(model_name: str):
+def _get_sentence_transformer_model(model_name):
     if model_name not in _CACHED_MODELS:
         from sentence_transformers import SentenceTransformer
         print(f"Info: Loading SentenceTransformer model: {model_name}...", file=sys.stderr)
@@ -92,26 +91,24 @@ def _get_sentence_transformer_model(model_name: str):
         print(f"Info: Model {model_name} loaded.", file=sys.stderr)
     return _CACHED_MODELS[model_name]
 
-def _embed_texts_batch(texts: List[str], model_name: str, is_query: bool = False) -> np.ndarray:
+def _embed_texts_batch(texts, model_name, is_query=False):
     if not texts: return np.array([])
     texts_to_embed = [f"query: {text}" for text in texts] if is_query else texts
-    show_progress = not is_query # Show progress only for bulk indexing
+    show_progress = not is_query
     model = _get_sentence_transformer_model(model_name)
-    # print(f"Info: Embedding {len(texts_to_embed)} {'queries' if is_query else 'chunks'} with {model_name}...", file=sys.stderr) # Optional
     return model.encode(texts_to_embed, batch_size=32 if not is_query else 1,
                         show_progress_bar=show_progress, normalize_embeddings=True)
 
-def build_index(repo_root_path: str | Path, index_output_path: str | Path, model_name: str = DEFAULT_MODEL):
+def build_index(repo_root_path, index_output_path, model_name=DEFAULT_MODEL):
     repo_root, index_file = Path(repo_root_path).resolve(), Path(index_output_path).resolve()
     if not repo_root.is_dir(): raise FileNotFoundError(f"Repo root not found: {repo_root}")
     all_src_texts, all_meta = [], []
     print(f"Info: Scanning Python files in: {repo_root} for AST chunking...", file=sys.stderr)
     py_files = [p for p in repo_root.rglob("*.py") if not any(ex in p.parts for ex in
                 ['.git', '.vscode', '.idea', '__pycache__', 'node_modules', 'build', 'dist',
-                 'venv', 'env', '.env', 'site-packages', '.ipynb_checkpoints', 'tests', 'test', 'docs/_build'])] # Common exclusions
+                 'venv', 'env', '.env', 'site-packages', '.ipynb_checkpoints', 'tests', 'test', 'docs/_build'])]
     print(f"Info: Found {len(py_files)} Python files to process.", file=sys.stderr)
     for py_path in py_files:
-        # print(f"Info: Processing for AST chunks: {py_path.relative_to(repo_root)}", file=sys.stderr) # Optional
         for chunk_dict in _extract_ast_chunks_from_file(py_path, repo_root):
             all_src_texts.append(chunk_dict["source_code"])
             all_meta.append(chunk_dict)
@@ -126,17 +123,14 @@ def build_index(repo_root_path: str | Path, index_output_path: str | Path, model
     np.savez_compressed(index_file, embeddings=embeddings, meta=np.array(all_meta, dtype=object))
     print(f"✓ Index with {len(all_meta)} AST chunks written to {index_file}", file=sys.stderr)
 
-def _load_index_from_file(index_file_path: Path) -> Tuple[torch.Tensor, List[Dict[str, Any]]]:
-    # print(f"Info: Loading AST-based index from: {index_file_path}", file=sys.stderr) # Optional
+def _load_index_from_file(index_file_path):
     data = np.load(index_file_path, allow_pickle=True)
     embeds_np, meta_np = data.get("embeddings"), data.get("meta")
     if embeds_np is None or meta_np is None: raise ValueError(f"Index missing 'embeddings' or 'meta': {index_file_path}")
-    meta_list = [dict(item) for item in meta_np] # Ensure it's a list of dicts
-    # print(f"Info: Index {index_file_path} loaded. Embeddings: {embeds_np.shape}, Meta items: {len(meta_list)}", file=sys.stderr) # Optional
+    meta_list = [dict(item) for item in meta_np]
     return torch.tensor(embeds_np, dtype=torch.float32), meta_list
 
-def get_code_context(query: str, index_file_path: str | Path, k: int = 3,
-                     max_tokens: int = 2000, query_model_name: str = DEFAULT_MODEL) -> List[Dict[str, Any]]:
+def get_code_context(query, index_file_path, k=3, max_tokens=2000, query_model_name=DEFAULT_MODEL):
     idx_path = Path(index_file_path).resolve()
     if idx_path not in _CACHED_INDICES:
         if not idx_path.exists(): raise FileNotFoundError(f"Index file not found: {idx_path}")
@@ -148,7 +142,6 @@ def get_code_context(query: str, index_file_path: str | Path, k: int = 3,
     if embeds_tensor.ndim == 1: embeds_tensor = embeds_tensor.unsqueeze(0)
     if q_tensor.ndim > 1: q_tensor = q_tensor.squeeze()
     if embeds_tensor.shape[0] == 0 or embeds_tensor.shape[1] != q_tensor.shape[0]:
-        # print(f"Warning: Dim mismatch or empty embeds. Embeds: {embeds_tensor.shape}, Query: {q_tensor.shape}", file=sys.stderr) # Optional
         return []
     sims = (embeds_tensor @ q_tensor).cpu().numpy()
     actual_k = min(k, len(sims))
@@ -160,7 +153,7 @@ def get_code_context(query: str, index_file_path: str | Path, k: int = 3,
         snippet_text = chunk_meta["source_code"]
         token_count = len(snippet_text.split())
         if current_tokens + token_count > max_tokens and len(results) > 0:
-            if k == 1 and not results: pass # Allow first if k=1
+            if k == 1 and not results: pass
             else: continue
         results.append({
             "file": chunk_meta["file_path"], "lines": f"{chunk_meta['start_line']}-{chunk_meta['end_line']}",
@@ -171,17 +164,15 @@ def get_code_context(query: str, index_file_path: str | Path, k: int = 3,
         if len(results) >= k: break
     return results
 
-def _handle_build_cli(args: argparse.Namespace):
-    # print("Info: CLI: Initiating index build...", file=sys.stderr) # Optional
+def _handle_build_cli(args):
     build_index(repo_root_path=args.repo, index_output_path=args.index, model_name=args.model)
 
-def _handle_query_cli(args: argparse.Namespace):
-    # print(f"Info: CLI: Querying index '{args.index}' with query: '{args.query}'", file=sys.stderr) # Optional
+def _handle_query_cli(args):
     try:
         results = get_code_context(query=args.query, index_file_path=args.index, k=args.k,
                                    max_tokens=args.max_tokens, query_model_name=args.model)
         if results:
-            print("=== Query Results ===") # This is the main output for user
+            print("=== Query Results ===")
             for res_idx, res in enumerate(results):
                 print(f"\n--- Result {res_idx+1} ---")
                 print(f"File: {res['file']}")
@@ -194,35 +185,13 @@ def _handle_query_cli(args: argparse.Namespace):
     except FileNotFoundError as e: print(f"Error: {e}. Ensure index file exists.", file=sys.stderr)
     except Exception as e: print(f"An error occurred during query: {e}", file=sys.stderr)
 
-def process_source(
-    path: Path, 
-    text: str, 
-    elem_type: str, 
-    chunks: List[str], 
-    meta: List[Dict[str, Any]], 
-    repo: Path
-) -> None:
-    """
-    Extracts heading-scoped text chunks from Markdown or pre-processed notebook content.
-
-    Each chunk represents the immediate content of a distinct heading. Metadata,
-    including hierarchical heading paths and source file details, is generated
-    for each chunk. Chunks with fewer than 5 non-empty lines are omitted.
-
-    Parameters:
-        path: Path to the original source file.
-        text: The textual content to process.
-        elem_type: Identifier for the type of element (e.g., "Markdown", "Notebook").
-        chunks: List to append extracted text chunks to.
-        meta: List to append metadata dictionaries to.
-        repo: Path to the root of the repository for relative path calculation.
-    """
+def process_source(path, text, elem_type, chunks, meta, repo):
     lines = text.splitlines(True) 
     if not lines:
         return
 
-    active_headings_stack: List[tuple[int, str]] = []
-    discovered_headings_info: List[tuple[int, int, List[tuple[int, str]]]] = []
+    active_headings_stack = []
+    discovered_headings_info = []
 
     for i, line_content in enumerate(lines):
         stripped_line = line_content.lstrip()
@@ -260,31 +229,16 @@ def process_source(
         })
         chunks.append(snippet_text)
 
-
-def build_prose_index(
-    repo_root_path: Union[str, Path], 
-    index_output_path: Union[str, Path], 
-    model_name: str = DEFAULT_MODEL 
-) -> None:
-    """
-    Scans a repository for prose files, processes them into text chunks,
-    embeds these chunks, and saves the index (embeddings, texts, and metadata)
-    to a compressed NumPy file (.npz).
-
-    Supported files include Markdown, plain text, and Jupyter notebooks.
-    For notebooks, Markdown cells are processed. Commonly excluded directories 
-    (e.g., hidden folders, build artifacts, virtual environments) are skipped.
-    """
-    repo_root_path = Path(repo_root_path).resolve() # Resolve to an absolute path
+def build_prose_index(repo_root_path, index_output_path, model_name=DEFAULT_MODEL):
+    repo_root_path = Path(repo_root_path).resolve()
     index_output_path = Path(index_output_path)
 
-    all_chunks_text: List[str] = []
-    all_chunks_meta: List[Dict[str, Any]] = []
+    all_chunks_text = []
+    all_chunks_meta = []
 
-    prose_extensions = {".md", ".txt", ".rst"} 
+    prose_extensions = {".md", ".txt", ".rst"}
     notebook_extensions = {".ipynb"}
 
-    # Specific directory names to exclude if they appear as a parent folder name
     EXCLUDE_DIR_NAMES_EXACT = {
         '.ipynb_checkpoints', 'build', 'dist', '__pycache__', 
         'venv', 'node_modules'
@@ -293,15 +247,12 @@ def build_prose_index(
     for file_path in repo_root_path.rglob("*"):
         should_skip = False
         try:
-            # Get parent directory names relative to the repository root
             relative_parent_dirs = file_path.relative_to(repo_root_path).parts[:-1]
             for part_name in relative_parent_dirs:
                 if part_name.startswith('.') or part_name in EXCLUDE_DIR_NAMES_EXACT:
                     should_skip = True
                     break
         except ValueError:
-            # Path is not relative to repo_root_path (shouldn't occur with rglob from resolved root)
-            # or another path issue. Safest to skip such problematic paths.
             should_skip = True
         
         if should_skip:
@@ -310,12 +261,10 @@ def build_prose_index(
         if not file_path.is_file():
             continue
 
-        # Proceed with processing if the file is not skipped and is a file
         if file_path.suffix in prose_extensions:
             try:
                 text_content = file_path.read_text(encoding="utf-8")
                 elem_type = "Markdown" if file_path.suffix == ".md" else "ProseText"
-                # process_source is assumed to be defined elsewhere and imported
                 process_source(file_path, text_content, elem_type, 
                                all_chunks_text, all_chunks_meta, repo_root_path)
             except Exception as e:
@@ -326,7 +275,7 @@ def build_prose_index(
                 with open(file_path, "r", encoding="utf-8") as f:
                     notebook = nbformat.read(f, as_version=nbformat.NO_CONVERT)
 
-                markdown_cell_sources: List[str] = []
+                markdown_cell_sources = []
                 for cell in notebook.cells:
                     if "ignore" in cell.metadata.get("tags", []):
                         continue
@@ -340,7 +289,6 @@ def build_prose_index(
                 
                 if markdown_cell_sources:
                     concatenated_markdown_content = "\n\n".join(markdown_cell_sources)
-                    # process_source is assumed to be defined elsewhere and imported
                     process_source(file_path, concatenated_markdown_content, "Notebook",
                                    all_chunks_text, all_chunks_meta, repo_root_path)
             except Exception as e:
@@ -351,7 +299,6 @@ def build_prose_index(
         return
 
     try:
-        # _embed_texts_batch is assumed to be defined elsewhere and imported
         embeddings_array = _embed_texts_batch(all_chunks_text, model_name, is_query=False) 
 
         index_output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -367,26 +314,12 @@ def build_prose_index(
     except Exception as e:
         print(f"Failed to build or save prose index for {repo_root_path}: {e}", file=sys.stderr)
 
-
-# get_prose_context: queries the index and returns top-k matches
-def get_prose_context(
-    query: str, 
-    index_file_path: Union[str, Path], 
-    k: int = 3,
-    model_name: str = DEFAULT_MODEL # For embedding the query
-) -> List[Dict[str, Any]]:
-    """
-    Retrieves relevant prose context snippets for a given query from a saved index.
-
-    Loads embeddings, texts, and metadata from the index file, embeds the query,
-    calculates cosine similarity, and returns the top-k matching text snippets
-    with their metadata.
-    """
+def get_prose_context(query, index_file_path, k=3, model_name=DEFAULT_MODEL):
     try:
         data = np.load(str(index_file_path), allow_pickle=True)
         embeddings = data["embeddings"]
-        texts = data["texts"] # Load texts
-        meta = list(data["metadata"]) # Ensure meta is a list
+        texts = data["texts"]
+        meta = list(data["metadata"])
     except FileNotFoundError:
         print(f"Error: Index file not found at {index_file_path}", file=sys.stderr)
         return []
@@ -399,36 +332,28 @@ def get_prose_context(
         return []
         
     query_embedding = _embed_texts_batch([query], model_name, is_query=True)
-    if query_embedding.ndim > 1: # Ensure query_embedding is 1D for dot product
+    if query_embedding.ndim > 1:
         query_embedding = query_embedding[0]
 
-    # Cosine similarity calculation
     q_norm = np.linalg.norm(query_embedding)
     e_norm = np.linalg.norm(embeddings, axis=1)
 
-    # Handle potential zero-norm vectors to avoid division by zero
-    # and ensure consistent shapes for broadcasting.
     if q_norm == 0:
         similarities = np.zeros(embeddings.shape[0])
     else:
-        # Create a mask for non-zero norm embeddings to avoid division by zero for those
         valid_e_norm_mask = e_norm > 0
         similarities = np.zeros(embeddings.shape[0])
         if np.any(valid_e_norm_mask):
-            # Calculate dot product only for valid embeddings
             dot_product = np.dot(embeddings[valid_e_norm_mask], query_embedding)
-            # Calculate similarity only for valid embeddings
             similarities[valid_e_norm_mask] = dot_product / (e_norm[valid_e_norm_mask] * q_norm)
         
-    # Get top k indices, handling cases where k > number of available items
     num_items = len(similarities)
     actual_k = min(k, num_items)
-    if actual_k == 0 and num_items > 0 : # if k was 0 but items exist
+    if actual_k == 0 and num_items > 0:
         return []
     elif num_items == 0:
         return []
 
-    # Ensure ids are integers for indexing
     ids = np.argsort(similarities)[::-1][:actual_k].astype(int)
 
     results = []
@@ -439,10 +364,9 @@ def get_prose_context(
             "heading_path": m["heading_path"],
             "element_type": m["element_type"],
             "lines": f"{m['start_line']}-{m['end_line']}",
-            "snippet": texts[i], # Use loaded texts for the snippet
+            "snippet": texts[i],
         })
     return results
-
 
 def _cli_main(argv=None):
     if argv is None: argv = sys.argv[1:]
